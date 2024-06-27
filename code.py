@@ -28,17 +28,22 @@
 
 import os
 import time
-#import ipaddress
+
+# import ipaddress
 import wifi
 import socketpool
+
+# import adafruit_connection_manager
 import json
 import board
 import busio
 from digitalio import DigitalInOut, Direction, Pull
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
 import dphacks_usaqi as USAQI
+import mdns as MDNS
 
-import adafruit_ahtx0
+# import adafruit_ahtx0
+import adafruit_sht4x
 from adafruit_httpserver import (
     Server,
     Request,
@@ -46,32 +51,32 @@ from adafruit_httpserver import (
     FileResponse,
     JSONResponse,
     GET,
-    POST
+    POST,
 )
 
 # getenv variables are setup in the ***setting.toml*** file
 # These variables are replicated here for code readability only.
-MQTT_ENABLED = os.getenv('MQTT_ENABLED')
-MQTT_BROKER = os.getenv('MQTT_BROKER')
-MQTT_TOPIC = os.getenv('MQTT_TOPIC')
-MQTT_PORT = os.getenv('MQTT_PORT')
-MQTT_ISTLS = os.getenv('MQTT_ISTLS')
-MQTT_USERNAME = os.getenv('MQTT_USERNAME')
-MQTT_PASSWORD = os.getenv('MQTT_PASSWORD')
+MQTT_ENABLED = os.getenv("MQTT_ENABLED")
+MQTT_BROKER = os.getenv("MQTT_BROKER")
+MQTT_TOPIC = os.getenv("MQTT_TOPIC")
+MQTT_PORT = os.getenv("MQTT_PORT")
+MQTT_ISTLS = os.getenv("MQTT_ISTLS")
+MQTT_USERNAME = os.getenv("MQTT_USERNAME")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
 
-INTERVAL = os.getenv('INTERVAL')
+INTERVAL = os.getenv("INTERVAL")
 
-LED_R_MEASURE = os.getenv('LED_R_MEASURE')
-LED_R_LOW_THRESHOLD = os.getenv('LED_R_LOW_THRESHOLD')
-LED_R_HIGH_THRESHOLD = os.getenv('LED_R_HIGH_THRESHOLD')
-LED_G_MEASURE = os.getenv('LED_G_MEASURE')
-LED_G_LOW_THRESHOLD = os.getenv('LED_G_LOW_THRESHOLD')
-LED_G_HIGH_THRESHOLD = os.getenv('LED_G_HIGH_THRESHOLD')
+LED_R_MEASURE = os.getenv("LED_R_MEASURE")
+LED_R_LOW_THRESHOLD = os.getenv("LED_R_LOW_THRESHOLD")
+LED_R_HIGH_THRESHOLD = os.getenv("LED_R_HIGH_THRESHOLD")
+LED_G_MEASURE = os.getenv("LED_G_MEASURE")
+LED_G_LOW_THRESHOLD = os.getenv("LED_G_LOW_THRESHOLD")
+LED_G_HIGH_THRESHOLD = os.getenv("LED_G_HIGH_THRESHOLD")
 
-C_TO_F = os.getenv('C_TO_F')
-SMOOTH = os.getenv('SMOOTH')
+C_TO_F = os.getenv("C_TO_F")
+SMOOTH = os.getenv("SMOOTH")
 
-VERSION = 1.1
+VERSION = 1.2
 
 ### PIN DEFINITIONS ###
 ## PICO LED
@@ -89,20 +94,20 @@ board_led_g.direction = Direction.OUTPUT
 
 # Header Pin 1 is connected to GPIO ADC1 (A1)
 # Uncomment the code below for reading analog signal through A1
-#import analogio
-#adc = analogio.AnalogIn(board.A1)
+# import analogio
+# adc = analogio.AnalogIn(board.A1)
 
 ### SENSOR DEFINITIONS ###
 
 ## PMS 5003
-print('Setting up PM Sensor...')
+print("Setting up PM Sensor...")
 from pms5003 import PMS5003
 
 pm25 = PMS5003()
 time.sleep(0.1)
 pm25.cmd_mode_passive()
 
-print('Sensor Setup!')
+print("Sensor Setup!")
 
 ## Setup i2c bus for Qwiic/QT sensors
 ## SCL on GP21; SDA on GP20
@@ -114,9 +119,15 @@ except RuntimeError:
 
 ## Add Qwiic/QT/I2C Sensors below
 if i2c:
-    th = adafruit_ahtx0.AHTx0(i2c) # Comment this line if not using AHT20
+    # th = adafruit_ahtx0.AHTx0(i2c) # Comment this line if not using AHT20
+    # print("Found AHT20")
+    th = adafruit_sht4x.SHT4x(i2c)  # I am using SHT41
+    print("Found SHT4x with serial number", hex(th.serial_number))
+    # there are different precisions, higher takes longer
+    th.mode = adafruit_sht4x.Mode.NOHEAT_HIGHPRECISION
 
 avgDict = {}
+
 
 ### SENSOR METHODS ###
 def read_all():
@@ -125,9 +136,10 @@ def read_all():
     """
     data = {}
     data = merge_dicts(read_pms25(), data)
-    data = merge_dicts(read_temp_hum(), data) # Comment this line if not using AHT20
+    data = merge_dicts(read_temp_hum(), data)  # Comment this line if not using AHT20
 
     return data
+
 
 def read_pms25():
     """
@@ -142,22 +154,22 @@ def read_pms25():
         print("Unable to read PM2.5 Data")
         # pm25.reset()
 
-    if(pmdata):
-        pmvalues['pm10 standard'] = pmdata.data[0]
-        pmvalues['pm25 standard'] = pmdata.data[1]
-        pmvalues['pm100 standard'] = pmdata.data[2]
-        pmvalues['pm10 env'] = pmdata.data[3]
-        pmvalues['pm25 env'] = pmdata.data[4]
-        pmvalues['pm100 env'] = pmdata.data[5]
-        pmvalues['particles 03um'] = pmdata.data[6]
-        pmvalues['particles 05um'] = pmdata.data[7]
-        pmvalues['particles 10um'] = pmdata.data[8]
-        pmvalues['particles 25um'] = pmdata.data[9]
-        pmvalues['particles 50um'] = pmdata.data[10]
-        pmvalues['particles 100um'] = pmdata.data[11]
-
+    if pmdata:
+        pmvalues["pm10 standard"] = pmdata.data[0]
+        pmvalues["pm25 standard"] = pmdata.data[1]
+        pmvalues["pm100 standard"] = pmdata.data[2]
+        pmvalues["pm10 env"] = pmdata.data[3]
+        pmvalues["pm25 env"] = pmdata.data[4]
+        pmvalues["pm100 env"] = pmdata.data[5]
+        pmvalues["particles 03um"] = pmdata.data[6]
+        pmvalues["particles 05um"] = pmdata.data[7]
+        pmvalues["particles 10um"] = pmdata.data[8]
+        pmvalues["particles 25um"] = pmdata.data[9]
+        pmvalues["particles 50um"] = pmdata.data[10]
+        pmvalues["particles 100um"] = pmdata.data[11]
 
     return pmvalues
+
 
 def read_temp_hum():
     """
@@ -165,22 +177,24 @@ def read_temp_hum():
     """
     values = {}
     try:
-        if(C_TO_F):
-            values['temperature'] = round(c_to_f(th.temperature), 2)
+        if C_TO_F:
+            values["temperature"] = round(c_to_f(th.temperature), 2)
         else:
-            values['temperature'] = round(th.temperature, 2)
-        
-        values['humidity'] = round(th.relative_humidity, 2)
+            values["temperature"] = round(th.temperature, 2)
+
+        values["humidity"] = round(th.relative_humidity, 2)
     except Exception:
         print("No temp or humidity sensor")
 
     return values
+
 
 def read_analog():
     """
     Read analog signal from Pin ADC1 (A1)
     """
     return adc.value
+
 
 ### LED METHODS ###
 def led_on(led):
@@ -189,11 +203,13 @@ def led_on(led):
     """
     led.value = True
 
+
 def led_off(led):
     """
     Turn off the LED passed to the function
     """
     led.value = False
+
 
 def blink(led, period, times):
     """
@@ -203,23 +219,25 @@ def blink(led, period, times):
         led_on(led)
         time.sleep(period)
         led_off(led)
-        if(i != times):
+        if i != times:
             time.sleep(period)
+
 
 def led_status(values):
     """
     Turn onboard LEDs on/off based on sensor data. This can be used to create a status
     indicator based on sensor reading values.
     """
-    if(LED_R_LOW_THRESHOLD < values[LED_R_MEASURE] <= LED_R_HIGH_THRESHOLD):
+    if LED_R_LOW_THRESHOLD < values[LED_R_MEASURE] <= LED_R_HIGH_THRESHOLD:
         board_led_r.value = True
     else:
         board_led_r.value = False
 
-    if(LED_G_LOW_THRESHOLD < values[LED_G_MEASURE] <= LED_G_HIGH_THRESHOLD):
+    if LED_G_LOW_THRESHOLD < values[LED_G_MEASURE] <= LED_G_HIGH_THRESHOLD:
         board_led_g.value = True
     else:
         board_led_g.value = False
+
 
 ### HELPER METHODS ###
 def merge_dicts(values, dicts):
@@ -230,6 +248,7 @@ def merge_dicts(values, dicts):
 
     return dicts
 
+
 def average_dict(dicts):
     """
     Record sensor measurements in a dictionary of lists. Used to smooth sensor readings
@@ -238,26 +257,28 @@ def average_dict(dicts):
     for d in dicts:
         # Add sensor measurement to avgDict if it doesn't already exists
         # Helpful for not having to declare every possible sensor measure
-        if(d not in avgDict):
-            avgDict[d]=[]
+        if d not in avgDict:
+            avgDict[d] = []
         avgDict[d].append(dicts[d])
         ln = len(avgDict[d])
-        if(ln > SMOOTH):
+        if ln > SMOOTH:
             newList = avgDict[d]
             # Only keep SMOOTH number of items in the list
-            avgDict[d] = newList[ln-SMOOTH:]
+            avgDict[d] = newList[ln - SMOOTH :]
 
     return avgDict
-    
+
+
 def average_values(avgDict):
     """
     Calculates the average measurement based on values stored in the average dict
     """
     values = {}
     for v in avgDict:
-        values[v] = round(sum(avgDict[v])/len(avgDict[v]))
+        values[v] = round(sum(avgDict[v]) / len(avgDict[v]))
 
     return values
+
 
 def c_to_f(temp):
     """
@@ -268,22 +289,30 @@ def c_to_f(temp):
 
 print("Connecting to WiFi")
 
-wifi.radio.connect(os.getenv('WIFI_SSID'), os.getenv('WIFI_PASSWORD'))
+wifi.radio.connect(os.getenv("WIFI_SSID"), os.getenv("WIFI_PASSWORD"))
 
 # Blink the green LED if Wifi is connected
-if(wifi.radio.connected):
+if wifi.radio.connected:
     print("Connected to WiFi")
     blink(board_led_g, 0.2, 3)
-    
 
 # Create socket pool
 pool = socketpool.SocketPool(wifi.radio)
+# pool = adafruit_connection_manager.get_radio_socketpool(radio)
 
 # Create html server
-server = Server(pool, '/html', debug=True)
+server = Server(pool, "/html", debug=True)
+
+# Initialize mDNS
+# probably make this optional in settings.toml?
+mdns = MDNS.Server(wifi.radio)
+mdns.hostname = "pico-w-air"
+mdns.advertise_service(service_type="_http", protocol="_tcp", port=80)
+
+print("mDNS started with hostname: ", mdns.hostname)
 
 #  prints MAC address to REPL
-print("My MAC addr:", [hex(i) for i in wifi.radio.mac_address])
+print("My MAC addr is", [hex(i) for i in wifi.radio.mac_address])
 
 #  prints IP address to REPL
 print("My IP address is", wifi.radio.ipv4_address)
@@ -294,8 +323,9 @@ mqtt_client = MQTT.MQTT(
     port=MQTT_PORT,
     socket_pool=pool,
     is_ssl=MQTT_ISTLS,
-    connect_retries = 2
+    connect_retries=2,
 )
+
 
 ### HTML SERVER ROUTES ###
 @server.route("/")
@@ -305,10 +335,11 @@ def base(request: Request):
     """
     return FileResponse(request, "index.html")
 
+
 @server.route("/getdata")
 def get_sensor_data(request: Request):
     """
-    Read sendor data and return JSON
+    Read sensor data and return JSON
     """
     data = read_all()
 
@@ -318,6 +349,7 @@ def get_sensor_data(request: Request):
 
     return JSONResponse(request, data)
 
+
 @server.route("/pmdata")
 def pmdata_client(request: Request):
     """
@@ -326,14 +358,16 @@ def pmdata_client(request: Request):
     data = read_pms25()
     return JSONResponse(request, data)
 
+
 @server.route("/aqi")
 def pmdata_client(request: Request):
     """
     Serve US AQI info as JSON
     """
-    data = USAQI.pm25_aqi(average_values(avgDict)['pm25 env'])
+    data = USAQI.pm25_aqi(average_values(avgDict)["pm25 env"])
     data = USAQI.aqi_info(data)
     return JSONResponse(request, data)
+
 
 @server.route("/th")
 def pmdata_client(request: Request):
@@ -342,7 +376,8 @@ def pmdata_client(request: Request):
     """
     data = read_temp_hum()
     return JSONResponse(request, data)
-    
+
+
 @server.route("/ledon")
 def pico_led_on(request: Request):
     """
@@ -351,6 +386,7 @@ def pico_led_on(request: Request):
     led.value = True
 
     return FileResponse(request, "index.html")
+
 
 @server.route("/ledoff")
 def pico_led_on(request: Request):
@@ -361,6 +397,7 @@ def pico_led_on(request: Request):
 
     return FileResponse(request, "index.html")
 
+
 @server.route("/redledon")
 def board_led_on(request: Request):
     """
@@ -369,6 +406,7 @@ def board_led_on(request: Request):
     led_on(board_led_r)
 
     return FileResponse(request, "index.html")
+
 
 @server.route("/redledoff")
 def board_led_on(request: Request):
@@ -379,6 +417,7 @@ def board_led_on(request: Request):
 
     return FileResponse(request, "index.html")
 
+
 @server.route("/greenledon")
 def board_led_on(request: Request):
     """
@@ -388,6 +427,7 @@ def board_led_on(request: Request):
 
     return FileResponse(request, "index.html")
 
+
 @server.route("/greenledoff")
 def board_led_on(request: Request):
     """
@@ -396,6 +436,7 @@ def board_led_on(request: Request):
     led_off(board_led_g)
 
     return FileResponse(request, "index.html")
+
 
 ### MQTT METHODS ###
 ## Leaving all methods here even though not all are being used
@@ -442,11 +483,13 @@ def message(client, topic, message):
     """
     print("New message on topic {0}: {1}".format(topic, message))
 
+
 def mqtt_try_reconnect():
     try:
         mqtt_client.reconnect()
     except MQTT.MMQTTException as e:
         print(e)
+
 
 # Connect callback handlers for mqtt_client
 mqtt_client.on_connect = connect
@@ -470,14 +513,14 @@ clock = time.monotonic()
 values = {}
 
 while True:
-    
+
     # Take the measurements after every interval
     if (clock + INTERVAL) < time.monotonic():
 
         mqtt_msg = {}
 
         mqtt_msg = read_all()
-        
+
         # averrage to smooth out values
         avgDict = average_dict(mqtt_msg)
 
@@ -485,25 +528,24 @@ while True:
 
         led_status(mqtt_msg)
 
-        if MQTT_ENABLED:
-            if not mqtt_client.is_connected():
-                mqtt_try_reconnect()
-                continue
+        if not mqtt_client.is_connected():
+            mqtt_try_reconnect()
+            continue
 
-            else:     
-                if (mqtt_msg and wifi.radio.connected):
-                    try:
-                        mqtt_client.publish(MQTT_TOPIC, json.dumps(mqtt_msg))
-                    except MQTT.MMQTTException as e:
-                        print(e)
-                    except:
-                        print("WiFi disconnected and MQTT socket is broken...")
-                        print("Trying to reconnect")
-                        mqtt_try_reconnect()
-                else:
-                    print("No successful readings or wifi is disconnected")
+        else:
+            if mqtt_msg and MQTT_ENABLED and wifi.radio.connected:
+                try:
+                    mqtt_client.publish(MQTT_TOPIC, json.dumps(mqtt_msg))
+                except MQTT.MMQTTException as e:
+                    print(e)
+                except:
+                    print("WiFi disconnected and MQTT socket is broken...")
+                    print("Trying to reconnect")
+                    mqtt_try_reconnect()
+            else:
+                print("No successful readings or wifi is disconnected")
 
         clock = time.monotonic()
-    
+
     # Process html requests between reading sensor data
     pool_result = server.poll()
