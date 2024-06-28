@@ -54,7 +54,7 @@ from adafruit_httpserver import (
     POST,
 )
 
-# getenv variables are setup in the ***setting.toml*** file
+# getenv variables are setup in the ***settings.toml*** file
 # These variables are replicated here for code readability only.
 MQTT_ENABLED = os.getenv("MQTT_ENABLED")
 MQTT_BROKER = os.getenv("MQTT_BROKER")
@@ -76,7 +76,7 @@ LED_G_HIGH_THRESHOLD = os.getenv("LED_G_HIGH_THRESHOLD")
 C_TO_F = os.getenv("C_TO_F")
 SMOOTH = os.getenv("SMOOTH")
 
-VERSION = 1.2
+VERSION = 1.3  # currently unused
 
 ### PIN DEFINITIONS ###
 ## PICO LED
@@ -107,7 +107,7 @@ pm25 = PMS5003()
 time.sleep(0.1)
 pm25.cmd_mode_passive()
 
-print("Sensor Setup!")
+print("PM Sensor activated")
 
 ## Setup i2c bus for Qwiic/QT sensors
 ## SCL on GP21; SDA on GP20
@@ -306,13 +306,14 @@ server = Server(pool, "/html", debug=True)
 # Initialize mDNS
 # probably make this optional in settings.toml?
 mdns = MDNS.Server(wifi.radio)
-mdns.hostname = "pico-w-air"
+mdns.hostname = os.getenv("HOSTNAME")
 mdns.advertise_service(service_type="_http", protocol="_tcp", port=80)
 
-print("mDNS started with hostname: ", mdns.hostname)
+print("mDNS started with hostname", mdns.hostname)
 
-#  prints MAC address to REPL
-print("My MAC addr is", [hex(i) for i in wifi.radio.mac_address])
+print(
+    "My MAC address is", ":".join(["{:02X}".format(b) for b in wifi.radio.mac_address])
+)
 
 #  prints IP address to REPL
 print("My IP address is", wifi.radio.ipv4_address)
@@ -445,7 +446,7 @@ def connect(mqtt_client, userdata, flags, rc):
     """
     This method is be called when the mqtt_client is connected successfully to the broker.
     """
-    print("Connected to MQTT Broker!")
+    print("Connected to MQTT Broker")
     print("Flags: {0}\n RC: {1}".format(flags, rc))
 
 
@@ -453,7 +454,7 @@ def disconnect(mqtt_client, userdata, rc):
     """
     This method is called when the mqtt_client disconnects from the broker.
     """
-    print("Disconnected from MQTT Broker!")
+    print("Disconnected from MQTT Broker")
 
 
 def subscribe(mqtt_client, userdata, topic, granted_qos):
